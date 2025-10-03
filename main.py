@@ -21,6 +21,10 @@ class DiaryCreate(BaseModel):
     user_id: str
     content: str
 
+class DiarySave(BaseModel):
+    user_id: str
+    diary_id: str
+
 @app.get("/")
 def read_root():
     return {"Status": "OK"}
@@ -84,6 +88,101 @@ def get_today_diaries(user_id: str = Query(..., description="ユーザーID")):
         )
 
         return diaries_response.data
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/diaries/save")
+def save_diary(save_request: DiarySave):
+    """日記を保存する（1日1回のみ）"""
+    try:
+        user_id = save_request.user_id
+        diary_id = save_request.diary_id
+        today = str(date.today())
+
+        # 今日既に保存済みかチェック
+        existing_save = (
+            supabase.table("saved_diaries")
+            .select("id")
+            .eq("user_id", user_id)
+            .gte("created_at", f"{today}T00:00:00")
+            .execute()
+        )
+
+        if existing_save.data:
+            raise HTTPException(status_code=400, detail="Already saved a diary today")
+
+        # 日記を保存
+        save_result = supabase.table("saved_diaries").insert({
+            "user_id": user_id,
+            "diary_id": diary_id
+        }).execute()
+
+        if not save_result.data:
+            raise HTTPException(status_code=500, detail="Failed to save diary")
+
+        # 元の日記のsaved_countを+1
+        supabase.rpc("increment_saved_count", {"diary_id": diary_id}).execute()
+
+        return {"message": "Diary saved successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/diaries/saved")
+def get_saved_diaries(user_id: str = Query(..., description="ユーザーID")):
+    """保存した日記の一覧を取得する"""
+    try:
+        # saved_diariesテーブルから保存した日記IDを取得
+        saved_response = (
+            supabase.table("saved_diaries")
+            .select("diary_id, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        if not saved_response.data:
+            return []
+
+        # 日記IDのリストを取得
+        diary_ids = [item["diary_id"] for item in saved_response.data]
+
+        # diariesテーブルから日記の詳細を取得
+        diaries_response = (
+            supabase.table("diaries")
+            .select("id, content, created_at, saved_count")
+            .in_("id", diary_ids)
+            .execute()
+        )
+
+        # 保存日時をマージ
+        saved_dict = {item["diary_id"]: item["created_at"] for item in saved_response.data}
+        for diary in diaries_response.data:
+            diary["saved_at"] = saved_dict.get(diary["id"])
+
+        return diaries_response.data
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/users/notifications")
+def get_notifications(user_id: str = Query(..., description="ユーザーID")):
+    """自分の日記が保存された通知を取得する"""
+    try:
+        # 自分が書いた日記でsaved_count > 0のものを取得
+        my_diaries_response = (
+            supabase.table("diaries")
+            .select("id, content, created_at, saved_count")
+            .eq("user_id", user_id)
+            .gt("saved_count", 0)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        return my_diaries_response.data
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
