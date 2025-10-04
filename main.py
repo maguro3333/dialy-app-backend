@@ -60,7 +60,7 @@ def create_diary(diary: DiaryCreate):
 
 @app.get("/api/diaries/today")
 def get_today_diaries(user_id: str = Query(..., description="ユーザーID")):
-    """ランダムに5つの日記を取得する（自分以外の日記）"""
+    """ランダムに1つの日記を取得する（自分以外の日記）"""
     try:
         # 自分以外のすべての日記を取得
         all_diaries_response = (
@@ -75,11 +75,11 @@ def get_today_diaries(user_id: str = Query(..., description="ユーザーID")):
         if not all_diaries_response.data:
             return []
 
-        # ランダムに5つ選択（Pythonでシャッフル）
+        # ランダムに1つ選択（Pythonでシャッフル）
         import random
         diaries = all_diaries_response.data
         random.shuffle(diaries)
-        return diaries[:5]
+        return diaries[:1]  # 1つだけ返す
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
