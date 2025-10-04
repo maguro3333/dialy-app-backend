@@ -60,34 +60,43 @@ def create_diary(diary: DiaryCreate):
 
 @app.get("/api/diaries/today")
 def get_today_diaries(user_id: str = Query(..., description="ユーザーID")):
-    """本日配信された日記を取得する"""
+    """ランダムに5つの日記を取得する（自分以外の日記）"""
     try:
-        today = str(date.today())
-
-        # daily_deliveriesテーブルから今日配信された日記IDを取得
-        deliveries_response = (
-            supabase.table("daily_deliveries")
-            .select("diary_id")
-            .eq("recipient_user_id", user_id)
-            .eq("delivery_date", today)
-            .execute()
-        )
-
-        if not deliveries_response.data:
-            return []
-
-        # 日記IDのリストを取得
-        diary_ids = [delivery["diary_id"] for delivery in deliveries_response.data]
-
-        # diariesテーブルから日記の詳細を取得
-        diaries_response = (
+        # 自分以外のすべての日記を取得
+        all_diaries_response = (
             supabase.table("diaries")
             .select("id, content, created_at")
-            .in_("id", diary_ids)
+            .neq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(100)  # 最新100件から選択
             .execute()
         )
 
-        return diaries_response.data
+        if not all_diaries_response.data:
+            return []
+
+        # ランダムに5つ選択（Pythonでシャッフル）
+        import random
+        diaries = all_diaries_response.data
+        random.shuffle(diaries)
+        return diaries[:5]
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/diaries/my")
+def get_my_diaries(user_id: str = Query(..., description="ユーザーID")):
+    """自分が書いた日記の履歴を取得する"""
+    try:
+        my_diaries_response = (
+            supabase.table("diaries")
+            .select("id, content, created_at, saved_count")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        return my_diaries_response.data
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
